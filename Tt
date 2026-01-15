@@ -3,7 +3,6 @@ date_default_timezone_set('America/Sao_Paulo');
 session_start();
 
 require_once 'config.php'; 
-$conexao = $pdo;
 
 
 $nivel_requerido = 1; 
@@ -26,7 +25,6 @@ $assunto = $nome_educador = $setor_educador = '';
 $educador_interno = $matriz_anual = $qualidade_seguranca = true;
 $data_treinamento = date('Y-m-d');
 $hora_inicio = date('H:i');
-$data_fim = date('Y-m-d');
 $mensagem = '';
 $id_treinamento = $_GET['id'] ?? null;
 $treinamento_em_andamento = false;
@@ -45,7 +43,6 @@ if ($id_treinamento) {
             $setor_educador = $treinamento['setor_educador'];
             $data_treinamento = $treinamento['data_treinamento'];
             $hora_inicio = $treinamento['hora_inicio'];
-            $data_fim = $treinamento['data_fim'];
             $matriz_anual = $treinamento['matriz_anual'];
             $qualidade_seguranca = $treinamento['qualidade_seguranca'];
             $treinamento_em_andamento = empty($treinamento['hora_fim']);
@@ -68,7 +65,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $setor_educador = trim($_POST['setor_educador']);
             $data_treinamento = $_POST['data_treinamento'];
             $hora_inicio = $_POST['hora_inicio'];
-            $data_fim = $_POST['data_fim'];
             $matriz_anual = isset($_POST['matriz_anual']) && $_POST['matriz_anual'] == 'sim';
             $qualidade_seguranca = isset($_POST['qualidade_seguranca']) && $_POST['qualidade_seguranca'] == 'sim';
             
@@ -172,16 +168,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             
         } elseif ($modo == 'finalizar' && $id_treinamento) {
             
-            $cpf_confirmacao = preg_replace('/[^0-9]/', '', $_POST['cpf_confirmacao']); 
-            $data_fim = $_POST['data_fim'];
+            $cpf_confirmacao = preg_replace('/[^0-9]/', '', $_POST['cpf_confirmacao']);
             $hora_fim = $_POST['hora_fim'];
             
             if (empty($cpf_confirmacao)) {
                 throw new Exception("É necessário informar um CPF para finalizar.");
-            }
-
-            if (empty($data_fim)) {
-                throw new Exception("É necessário informar a data de término.");
             }
             
             if (empty($hora_fim)) {
@@ -195,8 +186,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             
             $nome_responsavel = $responsavel ? $responsavel['nome'] : 'Usuário';
             
-            $stmt = $conexao->prepare("UPDATE Treinamentos SET data_fim = ? WHERE id_treinamento = ?");
-            $stmt->execute([$data_fim, $id_treinamento]);
             
             $stmt = $conexao->prepare("UPDATE Treinamentos SET hora_fim = ? WHERE id_treinamento = ?");
             $stmt->execute([$hora_fim, $id_treinamento]);
@@ -206,7 +195,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                       WHERE id_treinamento = ? AND hora_saida IS NULL");
             $stmt->execute([$hora_fim, $id_treinamento]);
             
-            $mensagem = "Treinamento #$id_treinamento finalizado com sucesso dia $data_fim às $hora_fim por $nome_responsavel.";
+            $mensagem = "Treinamento #$id_treinamento finalizado com sucesso às $hora_fim por $nome_responsavel.";
             $treinamento_em_andamento = false;
         }
     } catch (Exception $e) {
@@ -630,12 +619,7 @@ try {
                                         <input type="time" class="form-control" id="hora_fim" name="hora_fim" value="<?php echo date('H:i'); ?>" required>
                                     </div>
                                     <div class="form-text">Digite a hora de término do treinamento</div>
-                                    <div class="input-grou">
-                                        <span class="input-group-text"><i class="bi bi clock"></i></span>
-                                        <input type="time" class="form-control" id="data_fim" name="data_fim" value="<?php echo date('Y/m/d'); ?>" required>
-                                    </div>
                                 </div>
-
                             </div>
                             <div class="d-flex justify-content-center">
                                 <button type="submit" class="btn btn-primary me-2">Confirmar Término</button>
