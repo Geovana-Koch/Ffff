@@ -3,7 +3,7 @@ date_default_timezone_set('America/Sao_Paulo');
 session_start();
 
 require_once 'config.php'; 
-
+$conexao = $pdo;
 
 $nivel_requerido = 1; 
 if (($_SESSION['usuario_nivel'] ?? 0) < $nivel_requerido) {
