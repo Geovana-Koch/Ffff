@@ -1,0 +1,202 @@
+<?php
+date_default_timezone_set('America/Sao_Paulo');
+session_start();
+
+require_once 'config.php'; 
+$conexao = $pdo;
+
+// Verificar se o usuário está logado
+if (!isset($_SESSION['usuario_id'])) {
+    header('Location: login.php');
+    exit();
+}
+
+// Receber parâmetros
+$tipo = $_GET['tipo'] ?? 'educador';
+$nome = $_GET['nome'] ?? '';
+$periodo = $_GET['periodo'] ?? date('Y-m');
+$tipo_periodo = $_GET['tipo_periodo'] ?? 'mes';
+
+if (empty($nome)) {
+    die("Nome do colaborador não especificado.");
+}
+
+// Definir período
+if ($tipo_periodo == 'mes') {
+    $data_inicio = $periodo . '-01';
+    $data_fim = date('Y-m-t', strtotime($data_inicio));
+} else {
+    $data_inicio = $periodo . '-01-01';
+    $data_fim = $periodo . '-12-31';
+}
+
+// Configurar cabeçalhos para download
+header('Content-Type: text/csv; charset=utf-8');
+header('Content-Disposition: attachment; filename=dados_colaborador_' . $nome . '_' . date('Ymd_His') . '.csv');
+
+// Criar output
+$output = fopen('php://output', 'w');
+
+if ($tipo == 'educador') {
+    // Exportar dados do educador
+    fputcsv($output, ['Relatório de Treinamentos Ministrados'], ';');
+    fputcsv($output, ['Educador: ' . $nome], ';');
+    fputcsv($output, ['Período: ' . ($tipo_periodo == 'mes' ? date('F/Y', strtotime($periodo . '-01')) : $periodo)], ';');
+    fputcsv($output, ['Data de Exportação: ' . date('d/m/Y H:i:s')], ';');
+    fputcsv($output, [], ';'); // Linha em branco
+    
+    fputcsv($output, [
+        'Data',
+        'Assunto',
+        'Horário Início',
+        'Horário Fim',
+        'Duração (minutos)',
+        'Participantes',
+        'Matriz Anual',
+        'Qualidade/Segurança'
+    ], ';');
+    
+    // Buscar dados
+    $sql = "
+        SELECT 
+            t.data_treinamento,
+            t.assunto,
+            t.hora_inicio,
+            t.hora_fim,
+            TIMESTAMPDIFF(MINUTE, 
+                CONCAT(t.data_treinamento, ' ', t.hora_inicio),
+                CONCAT(t.data_treinamento, ' ', COALESCE(t.hora_fim, t.hora_inicio))
+            ) as duracao_minutos,
+            COUNT(DISTINCT tp.id_participacao) as participantes,
+            t.matriz_anual,
+            t.qualidade_seguranca
+        FROM Treinamentos t
+        LEFT JOIN Treinamento_Participantes tp ON t.id_treinamento = tp.id_treinamento
+        WHERE t.data_treinamento BETWEEN :data_inicio AND :data_fim
+        AND t.nome_educador = :nome
+        GROUP BY t.id_treinamento
+        ORDER BY t.data_treinamento DESC
+    ";
+    
+    $stmt = $conexao->prepare($sql);
+    $stmt->execute([
+        ':data_inicio' => $data_inicio,
+        ':data_fim' => $data_fim,
+        ':nome' => $nome
+    ]);
+    
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        fputcsv($output, [
+            date('d/m/Y', strtotime($row['data_treinamento'])),
+            $row['assunto'],
+            $row['hora_inicio'],
+            $row['hora_fim'] ?? '-',
+            $row['duracao_minutos'] ?? 0,
+            $row['participantes'] ?? 0,
+            $row['matriz_anual'] == 1 ? 'Sim' : 'Não',
+            $row['qualidade_seguranca'] == 1 ? 'Sim' : 'Não'
+        ], ';');
+    }
+    
+} else {
+    // Exportar dados do participante
+    fputcsv($output, ['Relatório de Treinamentos Participados'], ';');
+    fputcsv($output, ['Participante: ' . $nome], ';');
+    fputcsv($output, ['Período: ' . ($tipo_periodo == 'mes' ? date('F/Y', strtotime($periodo . '-01')) : $periodo)], ';');
+    fputcsv($output, ['Data de Exportação: ' . date('d/m/Y H:i:s')], ';');
+    fputcsv($output, [], ';'); // Linha em branco
+    
+    // Primeiro, buscar campo correto para nome do participante
+    $sql_desc = "DESCRIBE Treinamento_Participantes";
+    $stmt_desc = $conexao->query($sql_desc);
+    $desc_campos = $stmt_desc->fetchAll(PDO::FETCH_ASSOC);
+    
+    $campo_nome_participante = 'id_participacao';
+    foreach ($desc_campos as $campo) {
+        $field_lower = strtolower($campo['Field']);
+        if ($field_lower == 'nome' || 
+            $field_lower == 'nome_participante' || 
+            $field_lower == 'participante' ||
+            strpos($field_lower, 'cracha') !== false ||
+            strpos($field_lower, 'matricula') !== false) {
+            $campo_nome_participante = $campo['Field'];
+            break;
+        }
+    }
+    
+    fputcsv($output, [
+        'Data',
+        'Assunto',
+        'Educador',
+        'Horário Treinamento',
+        'Horário Entrada',
+        'Horário Saída',
+        'Duração Participação (minutos)',
+        'Matriz Anual',
+        'Qualidade/Segurança',
+        'Inconsistências'
+    ], ';');
+    
+    // Buscar dados
+    $sql = "
+        SELECT 
+            t.data_treinamento,
+            t.assunto,
+            t.nome_educador,
+            t.hora_inicio,
+            t.hora_fim,
+            tp.hora_entrada,
+            tp.hora_saida,
+            TIMESTAMPDIFF(MINUTE, 
+                CONCAT(t.data_treinamento, ' ', COALESCE(tp.hora_entrada, t.hora_inicio)),
+                CONCAT(t.data_treinamento, ' ', COALESCE(tp.hora_saida, COALESCE(t.hora_fim, t.hora_inicio)))
+            ) as duracao_participacao_minutos,
+            t.matriz_anual,
+            t.qualidade_seguranca
+        FROM Treinamentos t
+        INNER JOIN Treinamento_Participantes tp ON t.id_treinamento = tp.id_treinamento
+        WHERE t.data_treinamento BETWEEN :data_inicio AND :data_fim
+        AND tp.$campo_nome_participante = :nome
+        ORDER BY t.data_treinamento DESC
+    ";
+    
+    $stmt = $conexao->prepare($sql);
+    $stmt->execute([
+        ':data_inicio' => $data_inicio,
+        ':data_fim' => $data_fim,
+        ':nome' => $nome
+    ]);
+    
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        // Verificar inconsistências
+        $inconsistencias = [];
+        if (!empty($row['hora_entrada']) && !empty($row['hora_inicio'])) {
+            $entrada = strtotime($row['hora_entrada']);
+            $inicio_treinamento = strtotime($row['hora_inicio']);
+            
+            if ($entrada < ($inicio_treinamento - 1800)) {
+                $inconsistencias[] = "Entrada antecipada";
+            }
+            if ($entrada > $inicio_treinamento) {
+                $inconsistencias[] = "Entrada atrasada";
+            }
+        }
+        
+        fputcsv($output, [
+            date('d/m/Y', strtotime($row['data_treinamento'])),
+            $row['assunto'],
+            $row['nome_educador'],
+            $row['hora_inicio'] . ' - ' . ($row['hora_fim'] ?? '--:--'),
+            $row['hora_entrada'] ?? '-',
+            $row['hora_saida'] ?? '-',
+            $row['duracao_participacao_minutos'] ?? 0,
+            $row['matriz_anual'] == 1 ? 'Sim' : 'Não',
+            $row['qualidade_seguranca'] == 1 ? 'Sim' : 'Não',
+            implode(', ', $inconsistencias)
+        ], ';');
+    }
+}
+
+fclose($output);
+exit();
+?>
